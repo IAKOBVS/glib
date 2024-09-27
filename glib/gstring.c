@@ -1023,38 +1023,98 @@ g_string_replace (GString     *string,
                   const gchar *replace,
                   guint        limit)
 {
-  gsize f_len, r_len, pos;
-  gchar *cur, *next;
-  guint n = 0;
+  GString *new_string = NULL;
+  gsize f_len, r_len, new_len;
+  gchar *cur, *next, *first, *dst;
+  guint n;
 
   g_return_val_if_fail (string != NULL, 0);
   g_return_val_if_fail (find != NULL, 0);
   g_return_val_if_fail (replace != NULL, 0);
 
+  first = strstr (string->str, find);
+
+  if (first == NULL)
+    return 0;
+
+  new_len = string->len;
   f_len = strlen (find);
   r_len = strlen (replace);
-  cur = string->str;
 
-  while ((next = strstr (cur, find)) != NULL)
-    {
-      pos = next - string->str;
-      g_string_erase (string, pos, f_len);
-      g_string_insert (string, pos, replace);
-      cur = string->str + pos + r_len;
-      n++;
-      /* Only match the empty string once at any given position, to
-       * avoid infinite loops */
-      if (f_len == 0)
-        {
-          if (cur[0] == '\0')
-            break;
-          else
-            cur++;
+start:
+    dst = first;
+    cur = first;
+    n = 0;
+    while ((next = strstr (cur, find)) != NULL)
+      {
+        n++;
+        if G_UNLIKELY (f_len == 0)
+          {
+            g_string_insert_len (string, next - string->str, replace, r_len);
+            cur = next + r_len;
+            /* Only match the empty string once at any given position, to
+             * avoid infinite loops */
+            if (cur[0] == '\0')
+              break;
+            else
+              cur++;
+          }
+        else
+          {
+            if (r_len <= f_len)
+              {
+                memmove (dst, cur, next - cur);
+                dst += next - cur;
+                memcpy (dst, replace, r_len);
+                dst += r_len;
+              }
+            else
+              {
+                if (new_string == NULL)
+                  {
+                    new_len += r_len - f_len;
+                  }
+                else
+                  {
+                    g_string_append_len (new_string, cur, next - cur);
+                    g_string_append_len (new_string, replace, r_len);
+                  }
+              }
+            cur = next + f_len;
+          }
+        if (n == limit)
+          break;
+      }
+
+    if (f_len != 0)
+      {
+        if (r_len <= f_len)
+          {
+            gchar *end = string->str + string->len;
+            memmove (dst, cur, end - cur);
+            end = dst + (end - cur);
+            *end = 0;
+            string->len = end - string->str;
+          }
+        else
+          {
+            if (new_string == NULL)
+              {
+                new_string = g_string_sized_new (new_len);
+                g_string_append_len (new_string, string->str, first - string->str);
+                goto start;
+              }
+            else
+              {
+                g_string_append_len (new_string, cur, (string->str + string->len) - cur);
+                g_free (string->str);
+                string->allocated_len = new_string->allocated_len;
+                string->len = new_string->len;
+                string->str = new_string->str;
+                g_slice_free (GString, new_string);
+              }
+          }
         }
-      if (n == limit)
-        break;
-    }
-
   return n;
 }
 
